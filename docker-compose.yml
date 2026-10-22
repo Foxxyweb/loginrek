@@ -1,0 +1,132 @@
+# =============================================================================
+# loginrek — Docker Compose
+#
+# PRODUCTION (VPS)  : semua service, image dashboard ditarik dari GHCR.
+#                     File ini + .env.example dikirim ke VPS oleh GitHub Actions.
+# DEVELOPMENT LOKAL : jalankan infra saja, dashboard dijalankan via `npm run dev`
+#                       docker compose up -d postgres rustfs
+#
+# Semua variabel dibaca dari .env di folder yang sama (lihat .env.example).
+# Port hanya di-bind ke 127.0.0.1 — akses publik lewat Nginx di host.
+# =============================================================================
+
+name: loginrek
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  # ---------------------------------------------------------------------------
+  # API + Dashboard (AdonisJS + Inertia + React)
+  # ---------------------------------------------------------------------------
+  dashboard:
+    image: ghcr.io/${GHCR_OWNER:-change-me}/loginrek-dashboard:${IMAGE_TAG:-latest}
+    container_name: loginrek-dashboard
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: 3333
+      # Alamat internal jaringan Docker (override nilai di .env)
+      DB_HOST: postgres
+      DB_PORT: 5432
+      S3_ENDPOINT: http://rustfs:9000
+    ports:
+      - "127.0.0.1:${DASHBOARD_HOST_PORT:-3050}:3333"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rustfs:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3333/health >/dev/null || exit 1"]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+    logging: *default-logging
+    networks:
+      - loginrek
+
+  # ---------------------------------------------------------------------------
+  # PostgreSQL
+  # ---------------------------------------------------------------------------
+  postgres:
+    image: postgres:17-alpine
+    container_name: loginrek-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_USER:-loginrek}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-loginrek}
+      POSTGRES_DB: ${DB_DATABASE:-loginrek}
+      TZ: ${TZ:-UTC}
+    ports:
+      - "127.0.0.1:${POSTGRES_HOST_PORT:-5432}:5432"
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+    logging: *default-logging
+    networks:
+      - loginrek
+
+  # ---------------------------------------------------------------------------
+  # RustFS (object storage S3-compatible)
+  # Console (port 9001) hanya untuk admin — akses via SSH tunnel.
+  # ---------------------------------------------------------------------------
+  rustfs:
+    image: rustfs/rustfs:1.0.3
+    container_name: loginrek-rustfs
+    restart: unless-stopped
+    environment:
+      RUSTFS_ACCESS_KEY: ${S3_ACCESS_KEY:-loginrek}
+      RUSTFS_SECRET_KEY: ${S3_SECRET_KEY:-loginrek-secret}
+      RUSTFS_ADDRESS: ":9000"
+      RUSTFS_CONSOLE_ENABLE: "true"
+      RUSTFS_CONSOLE_ADDRESS: ":9001"
+    ports:
+      - "127.0.0.1:${RUSTFS_API_HOST_PORT:-9000}:9000"
+      - "127.0.0.1:${RUSTFS_CONSOLE_HOST_PORT:-9001}:9001"
+    volumes:
+      - rustfs_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:9000/health >/dev/null || exit 1"]
+      interval: 15s
+      timeout: 5s
+      start_period: 10s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+    logging: *default-logging
+    networks:
+      - loginrek
+
+networks:
+  loginrek:
+    name: loginrek
+
+# Nama volume dikunci agar data tidak "hilang" bila nama folder/project berubah.
+volumes:
+  pg_data:
+    name: loginrek_pg_data
+  rustfs_data:
+    name: loginrek_rustfs_data

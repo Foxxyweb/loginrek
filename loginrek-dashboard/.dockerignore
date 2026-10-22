@@ -1,0 +1,16 @@
+node_modules
+build
+tmp/*
+!tmp/.gitkeep
+public/assets
+.env
+.env.*
+!.env.example
+docs
+*.md
+.git
+.github
+.vscode
+.idea
+.DS_Store
+npm-debug.log*

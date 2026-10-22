@@ -1,0 +1,33 @@
+# =============================================================================
+# loginrek — root .gitignore
+# Tiap app punya .gitignore sendiri (loginrek-dashboard/, loginrek-mobile/).
+# =============================================================================
+
+# Secrets / env
+.env
+.env.*
+!.env.example
+
+# Dependencies & build
+node_modules/
+build/
+dist/
+coverage/
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.swp
+
+# Docker (data lokal bila memakai bind mount)
+/data/
+
+# Claude Code / agent lokal
+.claude/settings.local.json
